@@ -32,5 +32,4 @@ medium.com rocket.net
 # Shopee
 
 # voz.vn
-affinity.studio 45.13.237.213
-www.affinity.studio 31.25.239.132
+
