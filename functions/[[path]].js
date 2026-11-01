@@ -29,6 +29,10 @@ const PRIVATE_TLD_URL = '/rules/private_tlds.txt';
 const DNS_REDIRECT_ENABLED = true;
 const REDIRECT_RULES_URL = '/rules/redirect_rules.txt';
 
+// Local hosts-style overrides (format: "IP domain [domain2 ...]")
+const HOSTS_RULES_ENABLED = true;
+const HOSTS_RULES_URL = '/rules/hosts_rules.txt';
+
 // Dedicated Quad9 Upstream Domains
 const MULLVAD_UPSTREAM_ENABLED = true;
 const MULLVAD_UPSTREAM_URL = '/rules/quad9_upstream.txt';
@@ -46,6 +50,7 @@ let adBlocklist = new Set();
 let adAllowlist = new Set();
 let privateTlds = new Set();
 let redirectRules = new Map(); // domain → target domain
+let hostsRules = new Map(); // domain → { v4: [bytes[]], v6: [bytes[]] }
 let mullvadUpstreamDomains = new Set();
 let blocklistLastFetch = 0;
 let blocklistPromise = null;
@@ -82,6 +87,38 @@ async function fetchRedirectRules(url) {
   } catch { return new Map(); }
 }
 
+async function fetchHostsRules(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return new Map();
+    const text = await res.text();
+    const rules = new Map();
+    for (const raw of text.split('\n')) {
+      const line = raw.split('#')[0].trim();
+      if (!line) continue;
+      const [ip, ...names] = line.split(/\s+/);
+      if (names.length === 0) continue;
+
+      let bytes = null, is6 = false;
+      if (ip.includes(':')) {
+        bytes = ipv6ToBytes(ip);
+        is6 = true;
+      } else {
+        const p = ip.split('.');
+        if (p.length === 4 && p.every(x => /^\d{1,3}$/.test(x) && +x <= 255)) bytes = p.map(Number);
+      }
+      if (!bytes) continue;
+
+      for (const n of names) {
+        const key = n.toLowerCase().replace(/\.$/, '');
+        if (!rules.has(key)) rules.set(key, { v4: [], v6: [] });
+        rules.get(key)[is6 ? 'v6' : 'v4'].push(bytes);
+      }
+    }
+    return rules;
+  } catch { return new Map(); }
+}
+
 async function refreshBlocklists(baseUrl) {
   // Skip refresh if:
   // 1. Already fetched at least once AND
@@ -97,13 +134,15 @@ async function refreshBlocklists(baseUrl) {
       const pUrl = new URL(PRIVATE_TLD_URL, baseUrl).toString();
       const rUrl = new URL(REDIRECT_RULES_URL, baseUrl).toString();
       const mUrl = new URL(MULLVAD_UPSTREAM_URL, baseUrl).toString();
+      const hUrl = new URL(HOSTS_RULES_URL, baseUrl).toString();
 
-      const [block, allow, privateList, redirRules, mullvadList] = await Promise.all([
+      const [block, allow, privateList, redirRules, mullvadList, hostsList] = await Promise.all([
         AD_BLOCK_ENABLED ? fetchList(bUrl) : Promise.resolve(new Set()),
         AD_BLOCK_ENABLED ? fetchList(aUrl) : Promise.resolve(new Set()),
         BLOCK_PRIVATE_TLD ? fetchList(pUrl) : Promise.resolve(new Set()),
         DNS_REDIRECT_ENABLED ? fetchRedirectRules(rUrl) : Promise.resolve(new Map()),
-        MULLVAD_UPSTREAM_ENABLED ? fetchList(mUrl) : Promise.resolve(new Set())
+        MULLVAD_UPSTREAM_ENABLED ? fetchList(mUrl) : Promise.resolve(new Set()),
+        HOSTS_RULES_ENABLED ? fetchHostsRules(hUrl) : Promise.resolve(new Map())
       ]);
 
       // Always update state, even if lists are empty (to prevent infinite re-fetch)
@@ -111,6 +150,7 @@ async function refreshBlocklists(baseUrl) {
       if (BLOCK_PRIVATE_TLD) { privateTlds = privateList; }
       if (DNS_REDIRECT_ENABLED) { redirectRules = redirRules; }
       if (MULLVAD_UPSTREAM_ENABLED) { mullvadUpstreamDomains = mullvadList; }
+      if (HOSTS_RULES_ENABLED) { hostsRules = hostsList; }
 
       blocklistLastFetch = Date.now();
       blocklistsFetched = true; // Mark as fetched to prevent infinite re-fetch
@@ -342,6 +382,42 @@ function buildServfail(query) {
   res[6] = 0; res[7] = 0;
   res[8] = 0; res[9] = 0;
   res[10] = 0; res[11] = 0;
+  return res.buffer;
+}
+
+// Local answer for hosts-style rules: A (1) / AAAA (28) from the rule, any other type → NODATA
+function buildHostsAnswer(query, qtype, entry, ttl = 60) {
+  const v = new Uint8Array(query);
+  if (v.length < 12) return buildServfail(query);
+  let qEnd = 12;
+  while (qEnd < v.length) {
+    const len = v[qEnd];
+    if (len === 0) { qEnd++; break; }
+    if ((len & 0xC0) === 0xC0) { qEnd += 2; break; }
+    qEnd += len + 1;
+  }
+  qEnd += 4;
+
+  const addrs = qtype === 1 ? entry.v4 : qtype === 28 ? entry.v6 : [];
+  const rdlen = qtype === 28 ? 16 : 4;
+  const res = new Uint8Array(qEnd + addrs.length * (12 + rdlen));
+  res.set(v.subarray(0, qEnd));
+  res[2] = 0x80 | (v[2] & 0x7F);  // QR=1, mirror Opcode/AA/TC/RD
+  res[3] = 0x80;                   // RA=1, RCODE=0
+  res[4] = 0; res[5] = 1;          // QDCOUNT=1
+  res[6] = (addrs.length >> 8) & 0xFF; res[7] = addrs.length & 0xFF; // ANCOUNT
+  res[8] = 0; res[9] = 0; res[10] = 0; res[11] = 0;
+
+  let off = qEnd;
+  for (const bytes of addrs) {
+    res[off++] = 0xC0; res[off++] = 0x0C;           // name pointer -> question
+    res[off++] = 0; res[off++] = qtype;             // TYPE
+    res[off++] = 0; res[off++] = 1;                 // CLASS IN
+    res[off++] = (ttl >>> 24) & 0xFF; res[off++] = (ttl >>> 16) & 0xFF;
+    res[off++] = (ttl >>> 8) & 0xFF;  res[off++] = ttl & 0xFF;
+    res[off++] = 0; res[off++] = rdlen;             // RDLENGTH
+    res.set(bytes, off); off += rdlen;
+  }
   return res.buffer;
 }
 
@@ -750,13 +826,21 @@ async function handleDNSQuery(request, context) {
   }
 
   // Load data if any domain-based filter is enabled
-  if (AD_BLOCK_ENABLED || BLOCK_PRIVATE_TLD || DNS_REDIRECT_ENABLED || MULLVAD_UPSTREAM_ENABLED) {
+  if (AD_BLOCK_ENABLED || BLOCK_PRIVATE_TLD || DNS_REDIRECT_ENABLED || MULLVAD_UPSTREAM_ENABLED || HOSTS_RULES_ENABLED) {
     await ensureBlocklistsLoaded(request.url, context);
 
     // Parse domains once for both filters
     const domains = extractAllDomains(query);
     for (const domain of domains) {
       if (!domain) continue;
+
+      // Local hosts override (highest priority)
+      if (HOSTS_RULES_ENABLED && hostsRules.has(domain)) {
+        const qtype = extractQtype(query);
+        return new Response(buildHostsAnswer(query, qtype, hostsRules.get(domain)), {
+          headers: { ...cors, 'Content-Type': 'application/dns-message', 'X-Hosts': domain }
+        });
+      }
 
       // Mullvad Dedicated Upstream
       if (MULLVAD_UPSTREAM_ENABLED && isMullvadDomain(domain)) {
@@ -823,7 +907,7 @@ async function handleRequest(request, context) {
 
   if (path === '/debug') {
     if (!DEBUG_ENABLED) return new Response('Not Found', { status: 404 });
-    if (AD_BLOCK_ENABLED || BLOCK_PRIVATE_TLD || DNS_REDIRECT_ENABLED) {
+    if (AD_BLOCK_ENABLED || BLOCK_PRIVATE_TLD || DNS_REDIRECT_ENABLED || MULLVAD_UPSTREAM_ENABLED || HOSTS_RULES_ENABLED) {
       await ensureBlocklistsLoaded(request.url, context);
     }
     return new Response(JSON.stringify({
@@ -833,6 +917,7 @@ async function handleRequest(request, context) {
       blockedTypes: { ANY: BLOCK_ANY, AAAA: BLOCK_AAAA, PTR: BLOCK_PTR, HTTPS: BLOCK_HTTPS },
       privateTld: { enabled: BLOCK_PRIVATE_TLD, entries: privateTlds.size },
       dnsRedirect: { enabled: DNS_REDIRECT_ENABLED, rules: redirectRules.size },
+      hostsRules: { enabled: HOSTS_RULES_ENABLED, entries: hostsRules.size },
       mullvadUpstream: { enabled: MULLVAD_UPSTREAM_ENABLED, entries: mullvadUpstreamDomains.size }
     }, null, 2), { headers: { 'Content-Type': 'application/json' } });
   }
