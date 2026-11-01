@@ -33,10 +33,4 @@ medium.com rocket.net
 
 # voz.vn
 
-chatgpt.site 37.221.93.128
-claude.ai 45.13.237.213
-gemini.google.com 37.221.93.141
-grok.com 37.221.93.128
-aistudio.google.com 45.13.237.213
-chatgpt.com 37.221.93.141
-*.chatgpt.com 37.221.93.141
+
