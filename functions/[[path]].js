@@ -5,7 +5,7 @@ const UPSTREAM_GEO_BYPASS = 'https://dns.quad9.net/dns-query'; // Re-resolve wit
 const UPSTREAM_TIMEOUT = 5000;
 
 // Refresh interval for ALL lists (blocklist, allowlists, private TLDs, redirect rules)
-const ALL_LISTS_REFRESH_INTERVAL = 3600000; // 1 hour
+const ALL_LISTS_REFRESH_INTERVAL = 60000; // 1 hour
 
 const AD_BLOCK_ENABLED = true;
 const BLOCKLIST_URL = '/rules/blocklists.txt';
