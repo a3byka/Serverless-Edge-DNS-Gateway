@@ -17,7 +17,7 @@ const ECS_PREFIX_V6 = 48;
 
 // Block query types early to save Cloudflare Pages requests
 const BLOCK_ANY = false;    // TYPE 255 — ANY queries
-const BLOCK_AAAA = false;   // TYPE 28  — IPv6 queries
+const BLOCK_AAAA = true;   // TYPE 28  — IPv6 queries
 const BLOCK_PTR = false;    // TYPE 12  — Reverse DNS
 const BLOCK_HTTPS = true;  // TYPE 65  — HTTPS record queries
 
