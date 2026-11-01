@@ -619,9 +619,14 @@ api.erabu.sony.tv
 n-wap.i.tplinkcloud.com
 api.frameo.net
 serviceupdates.frameo.net
+secureapi.johnson-creative.com
+avrupd1.onkyo.com
+d1i3g64yqh23bt.cloudfront.net8
+sm.dell.com
 ota.lenovo.com
 firebaseinstallations.googleapis.com
 firestore.googleapis.com
+k8s-lb.wss.redditmedia.com
 storeedge.microsoft.com
 opt.scheels.com
 unifi-kms.svc.ui.com
@@ -654,6 +659,7 @@ mkt6385.com
 webto.salesforce.com
 lddy.no
 pjtra.com
+r.mailin.fr
 shareasale.com
 t.lt02.net
 traffic.henkinschultz.com
