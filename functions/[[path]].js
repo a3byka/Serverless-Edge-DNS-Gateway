@@ -19,7 +19,7 @@ const ECS_PREFIX_V6 = 48;
 const BLOCK_ANY = false;    // TYPE 255 — ANY queries
 const BLOCK_AAAA = false;   // TYPE 28  — IPv6 queries
 const BLOCK_PTR = false;    // TYPE 12  — Reverse DNS
-const BLOCK_HTTPS = false;  // TYPE 65  — HTTPS record queries
+const BLOCK_HTTPS = true;  // TYPE 65  — HTTPS record queries
 
 // Block private/internal TLDs and router domains
 const BLOCK_PRIVATE_TLD = true;
