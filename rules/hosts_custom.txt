@@ -1,0 +1,4 @@
+# Your own hosts rules (format: IP domain [domain2 ...]).
+# They are appended to rules/hosts_rules.txt on every daily update.
+# If a domain is listed here, the same domain from the GeoHide list is dropped (your IPs win).
+# Do not edit rules/hosts_rules.txt by hand: it is regenerated automatically.
