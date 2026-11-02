@@ -5,7 +5,7 @@ const UPSTREAM_GEO_BYPASS = 'https://dns.quad9.net/dns-query'; // Re-resolve wit
 const UPSTREAM_TIMEOUT = 5000;
 
 // Refresh interval for ALL lists (blocklist, allowlists, private TLDs, redirect rules)
-const ALL_LISTS_REFRESH_INTERVAL = 60000; // 1 minute
+const ALL_LISTS_REFRESH_INTERVAL = 60000; // 1 hour
 
 const AD_BLOCK_ENABLED = true;
 const BLOCKLIST_URL = '/rules/blocklists.txt';
@@ -93,27 +93,47 @@ async function fetchHostsRules(url) {
     if (!res.ok) return new Map();
     const text = await res.text();
     const rules = new Map();
-    for (const raw of text.split('\n')) {
-      const line = raw.split('#')[0].trim();
-      if (!line) continue;
-      const [ip, ...names] = line.split(/\s+/);
-      if (names.length === 0) continue;
-
-      let bytes = null, is6 = false;
-      if (ip.includes(':')) {
-        bytes = ipv6ToBytes(ip);
-        is6 = true;
-      } else {
-        const p = ip.split('.');
-        if (p.length === 4 && p.every(x => /^\d{1,3}$/.test(x) && +x <= 255)) bytes = p.map(Number);
+    const ipCache = new Map(); // ip string -> [bytes, is6]; each distinct IP is parsed only once (saves CPU)
+    const len = text.length;
+    let pos = 0;
+    while (pos < len) {
+      let end = text.indexOf('\n', pos);
+      if (end === -1) end = len;
+      const first = text.charCodeAt(pos);
+      if (first !== 35 /* # */ && first !== 10 && first !== 13) {
+        let line = text.substring(pos, end);
+        const h = line.indexOf('#');
+        if (h !== -1) line = line.substring(0, h);
+        line = line.trim();
+        if (line) {
+          const parts = line.split(/\s+/);
+          if (parts.length > 1) {
+            let info = ipCache.get(parts[0]);
+            if (info === undefined) {
+              const ip = parts[0];
+              let bytes = null, is6 = false;
+              if (ip.includes(':')) {
+                bytes = ipv6ToBytes(ip);
+                is6 = true;
+              } else {
+                const p = ip.split('.');
+                if (p.length === 4 && p.every(x => /^\d{1,3}$/.test(x) && +x <= 255)) bytes = p.map(Number);
+              }
+              info = bytes ? [bytes, is6] : null;
+              ipCache.set(ip, info);
+            }
+            if (info) {
+              for (let i = 1; i < parts.length; i++) {
+                const key = parts[i].toLowerCase().replace(/\.$/, '');
+                let e = rules.get(key);
+                if (!e) { e = { v4: [], v6: [] }; rules.set(key, e); }
+                (info[1] ? e.v6 : e.v4).push(info[0]);
+              }
+            }
+          }
+        }
       }
-      if (!bytes) continue;
-
-      for (const n of names) {
-        const key = n.toLowerCase().replace(/\.$/, '');
-        if (!rules.has(key)) rules.set(key, { v4: [], v6: [] });
-        rules.get(key)[is6 ? 'v6' : 'v4'].push(bytes);
-      }
+      pos = end + 1;
     }
     return rules;
   } catch { return new Map(); }
