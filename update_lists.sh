@@ -29,10 +29,8 @@ extract_domains() {
   }'
 }
 
-echo "Downloading and processing blocklists..."
-curl -fsSL --max-time 60 \
-https://raw.githubusercontent.com/bibicadotnet/blocklist_minimal/main/blocklists.txt \
-| extract_domains > "$BLOCK_TMP"
+echo "Skipping blocklists download to save Cloudflare Worker CPU time..."
+touch "$BLOCK_TMP"
 
 echo "Downloading and processing allowlists..."
 curl -fsSL --max-time 60 \
