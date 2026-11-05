@@ -818,6 +818,16 @@ async function ensureBlocklistsLoaded(url, context) {
 // ==================== HANDLERS ====================
 async function handleDNSQuery(request, context) {
   const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+  
+  // 1. Логируем IP, чтобы увидеть его в консоли Cloudflare
+  console.log(`[DNS] Client IP: ${clientIP}`);
+  
+  // 2. Список заблокированных IP (сюда впишешь IP друга, например ['95.24.129.218'])
+  const BLOCKED_IPS = []; 
+  if (BLOCKED_IPS.includes(clientIP)) {
+    return new Response('Access Denied', { status: 403 });
+  }
+
   const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Accept' };
 
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
